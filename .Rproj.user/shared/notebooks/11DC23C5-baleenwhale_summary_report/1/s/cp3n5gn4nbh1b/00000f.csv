@@ -1,0 +1,300 @@
+"0","## Whale Presence Input  ----"
+"0",""
+"0","call.cats <- c(""IS"",""A"",""IF"",""FF"",""MO"",""UP"",""PT"")  "
+"0",""
+"0","# Set the path to your main folder"
+"0","main_folder <- r""(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_5\BaleenWhale_AcousticAnalysis\Deployments)"" # direct to all deployments"
+"0",""
+"0","# List all subfolders"
+"0","subfolders <- list.files(main_folder, full.names = TRUE) #list all subfolders (aka Validation, Results)"
+"0",""
+"0","if (params$filterstations){"
+"0","  subfolders <- subfolders %>% grep(paste(params$stations, collapse = ""|""),., value = TRUE)"
+"0","}"
+"0","  "
+"0","# Initialize an empty list to store dataframes"
+"0","dfs <- list()"
+"0",""
+"0","# Iterate over each subfolder, read the CSV files, and combine into a single dataframe"
+"0","for (subfolder in subfolders) {"
+"0","  # Extract fruit name from the subfolder name"
+"0","  deployment <- basename(subfolder) #extract deployment name"
+"0","  "
+"0","  # Read the CSV file"
+"0","  csv_file <- list.files(paste0(subfolders,""\\Results\\""), pattern = paste0(deployment, ""_baleenwhale_dailypresence.csv""), #find the presence csv"
+"0","                          full.names = TRUE)"
+"0","  "
+"0","  df <- read_csv(csv_file) #read presence csv"
+"0","  "
+"0","  df$deployment <- deployment"
+"0","  "
+"0","  df<- df %>% "
+"0","    mutate(deployment = deployment,"
+"0","           station = str_extract(deployment, ""^[^_]+"")) %>% "
+"0","    relocate(station,deployment)"
+"0","  "
+"0","  # Store the dataframe in the list"
+"0","  dfs[[length(dfs) + 1]] <- df"
+"0","  "
+"0","}"
+"2","[1mRows: [22m[34m973[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m939[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m780[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m772[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m421[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m881[39m [1mColumns: [22m[34m6[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (5): deployment, species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m745[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m1437[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m1045[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m652[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m857[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m968[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m1091[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m125[39m [1mColumns: [22m[34m6[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (5): deployment, species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m351[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m583[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m896[39m [1mColumns: [22m[34m6[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (5): deployment, species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m770[39m [1mColumns: [22m[34m6[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (5): deployment, species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m1774[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m1328[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m695[39m [1mColumns: [22m[34m6[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (5): deployment, species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m156[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m1143[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m1237[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m5[39m [1mColumns: [22m[34m6[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (5): deployment, species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m382[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","[1mRows: [22m[34m164[39m [1mColumns: [22m[34m5[39m"
+"2","[36m──[39m [1mColumn specification[22m [36m────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (4): species, callcat, calltype, presence
+[34mdate[39m (1): detecdate"
+"2","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"0","data.input <- do.call(rbind, dfs)"
+"0",""
+"0",""
+"0","species.data <- data.input %>%"
+"0","  filter(presence == ""D"") %>%   # filters for definite presence"
+"0","  filter(year(detecdate)>=min(years)& year(detecdate)<=max(years)) %>% "
+"0","  filter(if (params$filterspecies) species %in% params$species else TRUE) %>%   # filters for species of %>% # filters for species of interest"
+"0","  select(!calltype) %>%"
+"0","  mutate(callcat = case_when(callcat == ""NS""~""MO"","
+"0","                              callcat == ""SG""~""MO"", .default =callcat)) %>% "
+"0","  filter(callcat %in% call.cats) %>%  #filters for wanted call category"
+"0","  distinct() %>%"
+"0","  mutate(spcallgroup_label = case_when((species== ""Bm"" & callcat == ""IF"")~""Blue whale (tonal calls)"","
+"0","                                       (species== ""Bm"" & callcat == ""A"")~""Blue whale (audible calls)"","
+"0","                                       (species== ""Bp"" & callcat == ""IS"")~""Fin whale (20Hz calls)"","
+"0","                                       (species== ""Bb"" & callcat == ""FF"")~""Sei whale (full frequency downsweep calls)"","
+"0","                                       (species== ""Mn"")                  ~""Humpback whale (all calls)"","
+"0","                                       (species== ""Eg"" & callcat == ""U"")~""North Atlantic right whale (upcalls)"","
+"0","                                       (species== ""Ba"" & callcat == ""P"")~""Minke whale (pulse trains)"")) %>% "
+"0","  mutate(spcallgroup = case_when(species=='Bm' & callcat==""IF"" ~ 'BW_IF_all',"
+"0","                                 species==""Bm"" & callcat=='A' ~ 'BW_A_all',"
+"0","                                 species=='Bp' & callcat=='IS' ~ 'FW_IS_D',"
+"0","                                 species=='Bb' & callcat=='FF' ~ 'SW_FF_all',"
+"0","                                 species=='Mn' ~ 'HB_all',"
+"0","                                 species=='Eg' & callcat=='UP'~ 'RW_UP_U',"
+"0","                                 species==""Ba""~ 'MW_all'))"
+"0","## All the labelling bits and pieces ----"
+"0","species.call.label <- unique(species.data$spcallgroup_label[species.data$species==params$species])"
+"0",""
+"0","spcallgroup_labels = c(""Blue whale (tonal calls)"",""Blue whale (audible calls)"",""Fin whale (20Hz calls)"","
+"0","                      ""Sei whale (full frequency downsweep calls)"",""Humpback whale (all calls)"","
+"0","                      ""North Atlantic right whale (upcalls)"",""Minke whale (pulse trains)"")"
+"0",""
+"0","spcallgroup_list <- c('BW_IF_all','BW_A_all',""FW_IS_D"",""SW_FF_all"",""HB_all"", ""RW_UP_U"", ""MW_all"")"
+"0",""
+"0","sp_label <-c(""Blue whale (tonal calls)"",""Blue whale (audible calls)"",""Fin whale"",""Sei whale"",""Humpback whale"", ""North Atlantic right whale"", ""Minke whale"")"
+"0",""
+"0","names(spcallgroup_list) <-sp_label"
+"0",""
+"0","cols <-c( ""#A6CEE3"",""#1F78B4"",""#7570B3"", ""#F0E442"", ""#E7298A"", ""#D55E00"", ""#66A61E"")"
+"0","names(cols) <- spcallgroup_list"
+"0",""
+"0","fig_height <- as.numeric(length(unique(species.data$station)))"
+"0",""
+"0",""

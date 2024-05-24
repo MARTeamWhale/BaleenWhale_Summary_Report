@@ -1,0 +1,1168 @@
+---
+title: "Baleen Whale Analysis Summary"
+author: "G. Macklin"
+date: 'Date created: `r Sys.Date()`'
+output:
+  word_document:
+    reference_docx: word_styles_reference_01.docx
+    fig_caption: true
+format: pipe
+params:
+  year_start:
+  year_end:
+  filterspecies:
+  filterstations:
+  species:
+  stations:
+always_allow_html: true
+---
+
+```{r metadata_setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+# load packages
+
+library(pacman)
+
+p_load(purrr, readxl,lubridate,tidyverse,here,ggnewscale,gridExtra,dbscan,sf, 
+       mapdata, marmap, ggspatial, ggpattern, ggrepel, maps, kableExtra, tinytex, 
+       flextable, RColorBrewer,xlsx,crul,stringr,readr,ftExtra, cowplot)
+
+# set dplyr not to display 'summarise' messages
+
+options(dplyr.summarise.inform = FALSE)
+
+fig_counter <- 0
+tab_counter <- 0
+
+## Metadata ----
+
+metadata.input<-read.csv(r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_2\PAM_metadata\deployment_summary.csv)", header= TRUE)
+
+years <- c(as.numeric(params$year_start):as.numeric(params$year_end))
+  
+  metadata<-metadata.input%>%
+    rename_with(tolower) %>%
+    
+    filter(year %in% years[-length(years)]) %>% #only keep years of interest
+    mutate(rec_start = as_date(as.character(in.water_start))+1, #format date
+           rec_end = as_date(as.character(in.water_end))-1) %>% #format date
+    
+   
+    mutate(depth = round(depth_m,0),
+           recorder_type = gsub(" - .*", "", equipment.make_model_serial)) %>% 
+    #extract station name
+    mutate(station_name = gsub("^[^:]+:|\\s*Revision.*", "", station)) %>% 
+    
+    # format deployments
+    mutate(deployment= str_replace_all(deployment, "-", "_"),
+           deployment = gsub('^(\\w{3,}_\\d{4}_\\d{2}).*','\\1', deployment)) %>% 
+    
+    # extract station code
+    mutate(station= str_extract(deployment, "^[^_]+")) %>%
+    filter(if(params$filterstation) station %in% params$stations else TRUE) %>% 
+    
+    mutate(station_name= paste0(station_name, " (",station,")")) %>% 
+    
+   select(c(station, deployment, station_name, latitude, longitude, rec_start, rec_end, depth, recorder_type)) %>% #remove unneeded columns
+    
+    drop_na()
+
+## Order of Stations ----
+
+stations.input <- read.csv(r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_2\PAM_metadata\mooring_stations.csv)", header= TRUE) 
+
+stations <- stations.input %>% 
+  rename_with(tolower) %>% 
+  select(station, lat, lon)
+
+  # Compute clusters based on spatial proximity (DBSCAN)
+  coordinates <- stations[, c("lon", "lat")]
+  
+  cluster <- dbscan(coordinates, eps = 1, minPts = 1)  # You may need to adjust eps and minPts based on your data
+  
+  # Calculate the average latitude and longitude for each cluster
+  cluster_centers <- aggregate(coordinates, by=list(cluster$cluster), FUN=mean) %>% 
+    arrange(lon, lat)
+  
+  # Reassign cluster labels based on the new order
+  cluster$cluster <- match(cluster$cluster, cluster_centers$Group.1)
+  
+  # Add cluster labels back to stations
+  stations$cluster <- cluster$cluster
+  
+  
+  # Function to order stations within each cluster
+  order_within_cluster <- function(cluster_id) {
+    cluster_stations <- stations[stations$cluster == cluster_id, ]
+    ordered_cluster_stations <- cluster_stations[order(cluster_stations$lat, cluster_stations$lon), ]
+    ordered_cluster_stations$order <- 1:nrow(ordered_cluster_stations)
+    return(ordered_cluster_stations)
+  }
+  
+  # Order stations within each cluster
+  Station.Order <- do.call(rbind, lapply(unique(cluster$cluster), order_within_cluster)) %>%
+    mutate(cluster = case_when(cluster == 7 ~11,
+                               cluster == 9 ~ 7,
+                               cluster == 8 ~ 10,
+                               cluster == 11 ~ 8,
+                               cluster == 10 ~ 9,
+                               TRUE ~ cluster)) %>% 
+    arrange(cluster,order) %>% 
+    pull(station)
+ 
+## Missing dates from deployments ----
+
+missing.days <- read.csv(r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_2\PAM_metadata\missing_dates.csv)", header= TRUE) %>% 
+  mutate(deployment = str_replace_all(deployment,"-","_")) %>% 
+  mutate(station= str_extract(deployment, "^[^_]+")) %>%
+  mutate(start_missing= as_date(as.character(start_missing)),
+         end_missing= as_date(as.character(end_missing))) %>% 
+  rowwise() %>% 
+  mutate(miss_days = list(seq.Date(start_missing, end_missing, by = "day"))) %>% 
+  unnest(cols=c(miss_days)) %>%
+  ungroup() %>% 
+  select(station, miss_days)
+
+
+## Find all recording dates ----
+
+# find all dates with recording effort
+
+  rec.days <- metadata %>% 
+    select(station, rec_start, rec_end) %>% 
+    rowwise() %>% 
+    mutate(rec_days = list(seq.Date(as_date(rec_start), as_date(rec_end), by = "day"))) %>% 
+    unnest(cols=c(rec_days)) %>%
+    ungroup() %>% 
+    anti_join(missing.days, by=c(c("station"), c("rec_days"="miss_days"))) %>% 
+    mutate(month = month(rec_days),
+         season= case_when((month == 3|month == 4| month==5) ~ 'SPRING',
+                           (month == 6|month == 7|month == 8) ~ 'SUMMER',
+                           (month == 9|month == 10|month == 11)~ 'FALL',
+                           (month == 12|month == 1|month == 2) ~ 'WINTER'))
+
+## Find all non-recording dates ----
+
+# function to find start and end dates of no recording periods
+detect_consecutive_intervals <- function(dates) {
+  if (length(dates) <= 1) return(data.frame(start_date = dates[1], end_date = dates[1]))
+  
+  intervals <- split(dates, cumsum(c(TRUE, diff(dates) != 1)))
+  intervals <- lapply(intervals, function(x) data.frame(start_date = min(x), end_date = max(x)))
+  return(do.call(rbind, intervals))
+}
+
+# find all dates within effort years  
+all.days <- metadata %>% 
+  select(station) %>% 
+  rowwise() %>% 
+  mutate(all_days = list(seq.Date(as_date(paste(years[1], "01", "01", sep = "-")),as_date(paste(years[length(years)], "12", "31", sep = "-")), by = "day"))) %>% 
+  unnest(cols=c(all_days)) %>% 
+  ungroup()
+
+# find the dates with no recording effort
+
+no.rec.dates <- all.days %>% 
+  anti_join(rec.days, by = c(c("station", c("all_days"="rec_days")))) %>% 
+  
+  group_by(station) %>%
+  summarize(consecutive_intervals = list(detect_consecutive_intervals(all_days))) %>%
+  unnest(cols = c(consecutive_intervals)) %>% 
+  distinct()
+
+# figure out a darker colour for error bars
+darken_color <- function(color, factor = 0.8) {
+  # Convert hex color to RGB
+  rgb_vals <- col2rgb(color)
+  
+  # Darken each RGB component
+  darkened_rgb <- rgb_vals * factor
+  
+  # Ensure values are within valid range (0-255)
+  darkened_rgb <- pmax(darkened_rgb, 0)
+  darkened_rgb <- pmin(darkened_rgb, 255)
+  
+  # Convert back to hex
+  darkened_hex <- rgb(darkened_rgb[1, ], darkened_rgb[2, ], darkened_rgb[3, ], maxColorValue = 255)
+  
+  return(darkened_hex)
+}
+```
+
+``` {r presence_data_input}
+## Whale Presence Input  ----
+
+call.cats <- c("IS","A","IF","FF","MO","UP","PT")  
+
+# Set the path to your main folder
+main_folder <- r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_5\BaleenWhale_AcousticAnalysis\Deployments)" # direct to all deployments
+
+# List all subfolders
+subfolders <- list.files(main_folder, full.names = TRUE) #list all subfolders (aka Validation, Results)
+
+if (params$filterstations){
+  subfolders <- subfolders %>% grep(paste(params$stations, collapse = "|"),., value = TRUE)
+}
+  
+# Initialize an empty list to store dataframes
+dfs <- list()
+
+# Iterate over each subfolder, read the CSV files, and combine into a single dataframe
+for (subfolder in subfolders) {
+  # Extract fruit name from the subfolder name
+  deployment <- basename(subfolder) #extract deployment name
+  
+  # Read the CSV file
+  csv_file <- list.files(paste0(subfolders,"\\Results\\"), pattern = paste0(deployment, "_baleenwhale_dailypresence.csv"), #find the presence csv
+                          full.names = TRUE)
+  
+  df <- read_csv(csv_file) #read presence csv
+  
+  df$deployment <- deployment
+  
+  df<- df %>% 
+    mutate(deployment = deployment,
+           station = str_extract(deployment, "^[^_]+")) %>% 
+    relocate(station,deployment)
+  
+  # Store the dataframe in the list
+  dfs[[length(dfs) + 1]] <- df
+  
+}
+
+data.input <- do.call(rbind, dfs)
+
+
+species.data <- data.input %>%
+  filter(presence == "D") %>%   # filters for definite presence
+  filter(year(detecdate)>=min(years)& year(detecdate)<=max(years)) %>% 
+  filter(if (params$filterspecies) species %in% params$species else TRUE) %>%   # filters for species of %>% # filters for species of interest
+  select(!calltype) %>%
+  mutate(callcat = case_when(callcat == "NS"~"MO",
+                              callcat == "SG"~"MO", .default =callcat)) %>% 
+  filter(callcat %in% call.cats) %>%  #filters for wanted call category
+  distinct() %>%
+  mutate(spcallgroup_label = case_when((species== "Bm" & callcat == "IF")~"Blue whale (tonal calls)",
+                                       (species== "Bm" & callcat == "A")~"Blue whale (audible calls)",
+                                       (species== "Bp" & callcat == "IS")~"Fin whale (20Hz calls)",
+                                       (species== "Bb" & callcat == "FF")~"Sei whale (full frequency downsweep calls)",
+                                       (species== "Mn")                  ~"Humpback whale (all calls)",
+                                       (species== "Eg" & callcat == "U")~"North Atlantic right whale (upcalls)",
+                                       (species== "Ba" & callcat == "P")~"Minke whale (pulse trains)")) %>% 
+  mutate(spcallgroup = case_when(species=='Bm' & callcat=="IF" ~ 'BW_IF_all',
+                                 species=="Bm" & callcat=='A' ~ 'BW_A_all',
+                                 species=='Bp' & callcat=='IS' ~ 'FW_IS_D',
+                                 species=='Bb' & callcat=='FF' ~ 'SW_FF_all',
+                                 species=='Mn' ~ 'HB_all',
+                                 species=='Eg' & callcat=='UP'~ 'RW_UP_U',
+                                 species=="Ba"~ 'MW_all'))
+## All the labelling bits and pieces ----
+species.call.label <- unique(species.data$spcallgroup_label[species.data$species==params$species])
+
+spcallgroup_labels = c("Blue whale (tonal calls)","Blue whale (audible calls)","Fin whale (20Hz calls)",
+                      "Sei whale (full frequency downsweep calls)","Humpback whale (all calls)",
+                      "North Atlantic right whale (upcalls)","Minke whale (pulse trains)")
+
+spcallgroup_list <- c('BW_IF_all','BW_A_all',"FW_IS_D","SW_FF_all","HB_all", "RW_UP_U", "MW_all")
+
+sp_label <-c("Blue whale (tonal calls)","Blue whale (audible calls)","Fin whale","Sei whale","Humpback whale", "North Atlantic right whale", "Minke whale")
+
+names(spcallgroup_list) <-sp_label
+
+cols <-c( "#A6CEE3","#1F78B4","#7570B3", "#F0E442", "#E7298A", "#D55E00", "#66A61E")
+names(cols) <- spcallgroup_list
+
+fig_height <- as.numeric(length(unique(species.data$station)))
+
+
+```
+
+This report summarizes the acoustic analysis results for `r species.call.label`. This includes recording stations `r unique(species.data$station)` from `r min(year(all.days$all_days))` to `r max(year(all.days$all_days))`.
+
+## Data Collection and Analysis
+
+Deployments from `r min(year(all.days$all_days))` to `r max(year(all.days$all_days))` were analysed, comprising of  `r length(unique(species.data$deployment))` deployments across `r length(unique(species.data$station))` recording stations (Figure 1, Table 1).
+
+```{r fig1_site_map, fig.width= 7.5, fig.cap="", echo=FALSE}
+## Map prep ----
+
+# read in shapefiles
+  MPAs<-read_sf(r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_2\shapefiles\ProtectedAreas\DFO\OA_MPAs\EastCan_MPAS.shp)")
+
+  canada <- read_sf("R:/Science/CetaceanOPPNoise/CetaceanOPPNoise_2/shapefiles/coastline/canada/clipped/canada_simple.shp") %>% 
+    st_transform(4326)
+  
+
+  north.america <- read_sf("R:/Science/CetaceanOPPNoise/CetaceanOPPNoise_2/shapefiles/coastline/north_america/north_america.shp") %>% 
+    st_transform(4326)
+ 
+#read in bathymetry
+
+bf = readRDS(r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_2\bathymetry\baleenwhale\bathymetry.RDS)")
+
+## Map that ----
+if(params$filterstations){
+  
+stations.for.map <- stations %>% filter(station %in% params$stations)
+
+station.map <-ggplot() +
+  
+  # add bathymetry
+  geom_raster(data=bf, aes(x=x, y=y, fill=z)) +
+  scale_fill_distiller(palette="Blues",guide = 'none') +
+  
+  # add land region
+  geom_sf(data = canada, color=NA, fill="grey60") +
+  
+  # add MPAs
+  geom_sf(data=MPAs, color= NA, fill="darkred", alpha=0.3) +
+  
+  # add stations
+  geom_point(data= stations.for.map, aes(x = lon, y = lat), colour="black", fill = "black", shape=17, size = 1, stroke = 2)+
+  geom_text(data= stations.for.map, aes(x=lon, y=lat, label = station), nudge_y =  -0.1) +
+  
+  
+  #finish up
+  coord_sf(ylim = c(round(min(stations.for.map$lat)-1,0), round(max(stations.for.map$lat)+1,0)), 
+           xlim = c(round(min(stations.for.map$lon)-1,0), round(max(stations.for.map$lon)+1,0)), expand = FALSE) +
+  
+  ylab("") + 
+  xlab("") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background =element_rect(fill="white", colour = "black"),
+        text = element_text(size = 12),
+        legend.key = element_rect(fill = NA),
+        plot.margin = margin(0.3,0.1,0.1,0.1,"cm"),
+        panel.spacing.x = unit(1, "lines"))
+
+map.full <-ggplot() +
+  
+  # add bathymetry
+  geom_raster(data=bf, aes(x=x, y=y, fill=z)) +
+  scale_fill_distiller(palette="Blues",guide = 'none') +
+  
+  # add land region
+  geom_sf(data = canada, color=NA, fill="grey60") +
+  
+  # add MPAs
+  geom_sf(data=MPAs, color= NA, fill="darkred", alpha=0.3) +
+  
+  #add zoom rectangle
+  geom_rect(aes(xmin = round(min(stations.for.map$lon)-1,0), xmax = round(max(stations.for.map$lon)+1,0), 
+                ymin = round(min(stations.for.map$lat)-1,0), ymax = round(max(stations.for.map$lat)+1,0)),
+            color = "red", fill = NA)+
+  
+  #finish up
+  coord_sf(xlim = c(-68, -55), ylim = c(39, 47.5), expand = FALSE) +
+  
+  # ylab("") + 
+  xlab("") +
+  
+  theme_void()+
+  theme(plot.background = element_rect(color = "black", size = 2),
+        plot.margin = margin(1, 1, 1, 1, unit = "pt"),
+        legend.key = element_rect(fill = NA))
+
+station_inset_map <- ggdraw() +
+  draw_plot(station.map) +
+  draw_plot(map.full, x = 0.7, y = 0.15, width = 0.3, height = 0.3)
+
+station_inset_map
+} else {
+  #get stations for mapping
+stations.for.map <- stations %>% 
+  select(station, lat, lon) %>% 
+  filter(station %in% species.data$station)
+
+ggplot() +
+  
+  # add bathymetry
+  geom_raster(data=bf, aes(x=x, y=y, fill=z)) +
+  scale_fill_distiller(palette="Blues",guide = 'none') +
+  
+  # add land region
+  geom_sf(data = canada, color=NA, fill="grey60") +
+  
+  # add NARW CH shapefile
+  geom_sf(data=MPAs, color= NA, fill="darkred", alpha=0.3) +
+  
+  # add stations
+  geom_point(data= stations.for.map, aes(x = lon, y = lat), colour="black", fill = "black", shape=17, size = 1, stroke = 2)+
+  geom_text(data= stations.for.map, aes(x=lon, y=lat, label = station), nudge_y =  -0.2) +
+  
+  
+  #finish up
+  coord_sf(xlim = c(-72, -53), ylim = c(40, 48), expand = FALSE) +
+  
+  ylab("") + 
+  xlab("") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background =element_rect(fill="white", colour = "black"),
+        text = element_text(size = 12),
+        legend.key = element_rect(fill = NA),
+        plot.margin = margin(0.3,0.1,0.1,0.1,"cm"),
+        panel.spacing.x = unit(1, "lines"))
+}
+
+fig_counter <- fig_counter +1
+tab_counter <- tab_counter +1
+
+```
+\
+**Figure `r fig_counter`.** Map of DFO Maritimes Region’s `r min(year(all.days$all_days))`-`r max(year(all.days$all_days))` passive acoustic monitoring (PAM) efforts included in this study (black triangles). Red polygons indicate important marine zones (MPAs, AOIs, etc.)
+
+\pagebreak
+
+**Table `r tab_counter`.** Summary of PAM deployments included in this study. Depth indicates the seafloor depth at each station. Recording dates and number of days represent complete recording days, excluding days the recorder was deployed and recovered, or shut off for other reasons. Recorder type indicates the make and model of the acoustic recording system used in the deployment.
+```{r data collection table}
+
+# data collection metadata
+data.collection.table <- metadata %>% 
+  filter(if(params$filterstation) station %in% params$stations else station %in% species.data$station) %>% 
+  left_join(stations %>% select(station,lat,lon), by = "station") %>% 
+  mutate(rec_days = as.numeric(difftime(rec_end,rec_start, units='days')+1)) %>%
+  mutate(rec_dates = paste0(rec_start," - ", rec_end)) %>% 
+  select(station,lat,lon,depth,rec_dates,rec_days,recorder_type) %>% 
+  arrange(factor(station, levels = Station.Order), rec_dates)
+  
+#specify column names
+data.collection.names <- c("Station","Latitude (decimal degrees)", "Longitude (decimal degrees)", "Depth (m)", 'Recording Dates', "# Days", "Recorder Type")
+
+
+data.collection.table %>% 
+  flextable() %>% 
+  set_header_df(mapping = data.frame(keys = colnames(data.collection.table), values = data.collection.names, 
+                                     stringsAsFactors = FALSE), key = "keys" ) %>%
+  merge_v() %>% 
+  set_table_properties(layout = "autofit", width = 1) %>%
+  bold(part = 'header') %>% 
+  theme_booktabs() %>% 
+  font(fontname = "Segoe UI")
+
+tab_counter <- tab_counter +1
+
+```
+
+\pagebreak
+
+Our analysis targeted `r length(unique(species.data$species))` baleen whale species, and their detectable call types.
+\
+\
+
+**Table `r tab_counter`**. Species, detectable call type and reference specified in these results.
+
+``` {r species calltype table}
+
+calltype.table <- tibble(
+  Species = c("Blue whale","Blue whale", "Fin whale", "Sei whale", "Humpback whale", "North Atlantic right whale","Minke whale"),
+  `Call Type(s)` = c("Infrasonic/tonal call (A/B/AB)", "Audible calls", "20 Hz pulse", "Full-frequency downsweep", "Song and non-song",
+                     "Upcall", "Pulse trains"),
+  Reference= c("Berchok et al. 2006","Berchok et al. 2006","Watkins et al. 1987","Baumgartner et al. 2008","Au et al. 2006","Parks 2003","Risch et al. 2013"),
+  spcode = c("Bm", "Bm", "Bp", "Bb", "Mn","Eg", "Ba"))
+
+calltype.table %>% 
+  filter(spcode %in% species.data$species) %>% 
+  select(!spcode) %>% 
+  flextable() %>% 
+  set_header_df(mapping = data.frame(keys = colnames(calltype.table), values = colnames(calltype.table), 
+                                     stringsAsFactors = FALSE), key = "keys" ) %>%
+  merge_v() %>% 
+  set_table_properties(layout = "autofit", width = 1) %>%
+  bold(part = 'header') %>%
+  add_footer_lines("NOTE: If blue whale audible calls or minke whale pulse trains are presented, results are a mix of opportunistic and detected calls") %>% 
+  theme_booktabs() %>% 
+  font(fontname = "Segoe UI")
+```
+\
+\
+Datasets were analyzed for whale calls using the Low Frequency Detection and Classification System (LFDCS; Baumgartner and Mussoline 2011). LFDCS processed audio files to create spectrograms and identify whale calls by tracing their fundamental frequency. Signal characteristics were compared to a call library, and matches within a specified Mahalanobis distance were classified as target species calls. A two-tiered validation approach verified LFDCS detections of blue, fin, sei and humpback whales to minimize false positives. The first tier used a lower M-dist threshold, prioritizing accuracy, while the second tier used a higher threshold to ensure no calls were missed. Days with validated detections from the target species’ detector and days where the target species was found using another species’ detector are included. All North Atlantic right whale upcalls detected within an M-dist threshold of < 3.0 were manually reviewed due to their rarity and conservation importance. Manual review involved a two-step process to confirm detections and exclude false positives. For minke whale pulse trains, datasets were visually reviewed using Long-Term Spectral Averages (LTSA) in Triton software (Scripps Institution of Oceanography, UC San Diego), as no reliable automated detector was available. LTSA reviews created a record of daily minke whale occurrence by identifying and annotating pulse trains each day. This comprehensive analysis approach aimed to accurately document the presence and distribution of various whale species.
+\
+\
+
+## Results
+
+``` {r summary figure data, echo= FALSE, eval=!params$filterspecies}
+
+daily_summary <- species.data %>%
+  select(station, detecdate, spcallgroup) %>% 
+  distinct() %>% 
+  group_by(station,spcallgroup) %>% 
+  summarize(days_present = n()) %>% 
+  ungroup() %>% 
+  
+  left_join( rec.days %>% group_by(station) %>% 
+               summarise(n_rec_days = n()) %>%
+               ungroup()) %>% 
+  
+  mutate(percent_days_present = (days_present/n_rec_days)*100) %>% 
+  complete(station = unique(station), spcallgroup = spcallgroup, 
+           fill = list(days_present = 0, percent_days_present=0)) %>% 
+  
+  mutate(spcall_label = fct_recode(spcallgroup, !!!spcallgroup_list)) %>% 
+  mutate(spcallgroup = fct_relevel(spcallgroup,spcallgroup_list)) %>% 
+  mutate(station=fct_relevel(station, Station.Order))
+```
+
+``` {r unfiltered conditional results, echo= FALSE, results = 'asis', eval = !params$filterspecies}
+for (i in unique(daily_summary$spcallgroup)) {
+  # Filter the data for the current spcallgroup
+  group_data <- daily_summary[daily_summary$spcallgroup == i, ]
+  
+  # Find the station with the maximum percent_days_present for the current group
+  max_station <- group_data %>%
+    group_by(station) %>%
+    summarize(max_percent_days = max(percent_days_present)) %>%
+    slice_max(max_percent_days)
+  
+   min_station <- group_data %>%
+    group_by(station) %>%
+    summarize(min_percent_days = min(percent_days_present)) %>%
+    slice_min(min_percent_days)
+  
+  # Find the unique spcall_label for the current group
+  spcall_labels <- unique(as.character(group_data$spcall_label))
+  
+  # Construct the sentence
+  text <- paste0(spcall_labels, " were most prevalent at ", max_station$station," (",round(max_station$max_percent_days,1),"%)", " and least at ", min_station$station," (",round(min_station$min_percent_days,1),"%). " )
+  
+  # Print the nicely formatted output
+  cat(text)
+}
+
+```
+
+```{r summary table data, echo= FALSE, eval= params$filterspecies}
+effort.presence <- rec.days %>% 
+  filter(station %in% species.data$station) %>%
+  left_join(species.data, by = c('station', 'rec_days' = 'detecdate')) %>% 
+  select(station,rec_days,species,callcat, presence) %>%
+  distinct() %>% 
+  complete(station, rec_days, species = params$species) %>%
+  replace_na(list(presence = "N")) %>% 
+  
+  mutate(month = month(rec_days),
+         season= case_when((month == 3|month == 4| month==5) ~ 'SPRING',
+                           (month == 6|month == 7|month == 8) ~ 'SUMMER',
+                           (month == 9|month == 10|month == 11)~ 'FALL',
+                           (month == 12|month == 1|month == 2) ~ 'WINTER'))
+
+effort.table <- data.frame(site = unique(effort.presence$station)) %>% 
+  
+  #add number of recording days
+  left_join(rec.days %>% 
+              select(station,rec_days) %>% 
+              group_by(station) %>% 
+              summarize(n.rec.days = dplyr::n()), by = join_by(site==station)) %>%
+   
+  #add number of days with species
+  left_join(effort.presence %>%
+              group_by(station,callcat) %>% 
+              summarise(presence=sum(presence=="D")),by = join_by(site==station)) %>%
+  drop_na() %>% 
+  mutate(perc = round((presence/n.rec.days)*100,1)) %>% 
+              pivot_wider(names_from = "callcat",values_from = c("presence","perc")) %>%
+   
+  #add # of days with calls per season
+  left_join(effort.presence %>%
+              group_by(station,season, callcat) %>%
+              summarise(presence= sum(presence=="D")),by = join_by(site==station)) %>%
+  drop_na() %>% 
+  mutate(perc = round((presence/n.rec.days)*100,1)) %>% 
+              pivot_wider(names_from = c("season","callcat"),values_from = c("presence","perc")) %>%
+  replace(is.na(.),0) %>% 
+   
+  # add # recording days per season
+  left_join(rec.days %>% 
+              select(station, rec_days,season) %>% 
+              group_by(station,season) %>% 
+              summarize(n.rec.days = dplyr::n()) %>% 
+              pivot_wider(names_from = "season",values_from = "n.rec.days"),by = join_by(site==station)) %>% 
+  #clean up
+  arrange(factor(site, levels = Station.Order))
+
+results.table <- effort.table %>%
+   pivot_longer(
+    cols = starts_with("presence") | starts_with("perc"),
+    names_to = c(".value", "season", "callcat"),
+    names_pattern = "(presence|perc)_?(FALL|SPRING|SUMMER|WINTER)?_?(.*)") %>%
+  mutate(season = sub("^$", "ALL", season))
+
+#  rename(`Winter(Dec-Feb)` = WINTER, `Spring (Mar-May)` = SPRING, `Summer (Jun-Aug)`= SUMMER,`Fall (Sep-Nov)`= FALL)
+  
+```
+
+```{r filtered conditional results, echo= FALSE, results = 'asis', eval = params$filterspecies}
+
+for(i in unique(results.table$callcat)){
+  group.data <- subset(results.table, callcat== i)
+  
+  # Find total # of days and %
+  total <- as.numeric(sum(group.data %>%
+                 filter(season == "ALL") %>%
+                 select(presence)))
+  
+  perc <- round((sum(group.data %>% filter(season =="ALL") %>%select(presence)) / sum(group.data %>%
+    filter(season =="ALL") %>%select(n.rec.days)))*100) %>% unique()
+  
+   # Find the station with the maximum percent_days_present for the current group
+  max_site <- group.data %>%
+    filter(season == "ALL") %>%
+    slice_max(perc) %>% 
+    select(perc) %>% 
+    unique()
+  
+   min_site <- group.data %>%
+     filter(season == "ALL") %>% 
+    slice_min(perc) %>% 
+     select(perc) %>% 
+    unique()
+
+
+text <- paste0(unique(species.data$spcallgroup_label[species.data$callcat==i]), " were found on a total of ", total," (",perc,"%)", " days, ranging from ", min_site$perc,"%"," to ",max_site$perc,"% (Table 2). ")
+
+cat(text)
+  
+}
+
+```
+
+```{r effort_presence_table, echo = FALSE, results = 'asis', eval = params$filterspecies}
+
+seasons<- c('WINTER',"SPRING","SUMMER","FALL")
+
+effort.table.pub <- effort.table %>% 
+  select(Station = site,
+         `Number recording days` = n.rec.days)
+
+for (callcat in call.cats[call.cats %in% species.data$callcat]) {
+  count_col <- paste0("presence_", callcat)
+  percent_col <- paste0("perc_", callcat)
+  combined_col <- paste0("Overall_",callcat)
+  
+  # Check if count and percent columns exist
+  if (count_col %in% colnames(effort.table) && percent_col %in% colnames(effort.table)) {
+    effort.table.pub[[combined_col]] <- paste0(effort.table[[count_col]], " (", effort.table[[percent_col]], "%)")
+  }
+}
+
+for (callcat in call.cats[call.cats %in% species.data$callcat]) {
+  for(season in seasons) {
+  count_col <- paste0("presence_", season,"_",callcat)
+  percent_col <- paste0("perc_", season,"_",callcat)
+  combined_col <- paste0(season, "_", callcat)
+  
+  # Check if count and percent columns exist
+  if (count_col %in% colnames(effort.table) && percent_col %in% colnames(effort.table)) {
+    effort.table.pub[[combined_col]] <- paste0(effort.table[[count_col]], " (", effort.table[[percent_col]], "%)")
+  }
+  }
+}
+
+for(i in call.cats[call.cats %in% species.data$callcat]){
+  
+tab_counter <- tab_counter +1
+
+effort.table.caption <- paste0("Recording effort (number of recording days), and number and percentage of recording days with confirmed ",unique(species.data$spcallgroup_label[species.data$callcat==i])," overall and by season  for each station. For a given season, the percent of recording days with calls present was calculated based on the available recording effort within that season, which varied across station.")
+
+cat(paste0("\n\n","**Table ", tab_counter, ".** ", effort.table.caption, "\n\n"))
+  
+  flextable_to_rmd(effort.table.pub %>%
+  select(Station, `Number recording days`,contains(paste0("_",i))) %>% 
+  flextable() %>%
+  span_header(sep = "_") %>% 
+  set_table_properties(layout = "autofit", width = 1) %>%
+  bold(part = 'header') %>%
+  theme_booktabs() %>% 
+  font(fontname = "Segoe UI"))
+  
+}
+
+```
+\
+
+```{r summary_fig, fig.width= 7.5,fig.cap="", echo=FALSE, results="asis",  eval = !params$filterspecies}
+
+# Graph prep 
+
+daily.summary.species.plot <- daily_summary %>%
+  mutate(spcall_label = str_replace(spcall_label,"NA Right whale", "North Atlantic right whale")) %>%
+  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup") %>% 
+  mutate(spcallgroup = fct_relevel(spcallgroup,spcallgroup_list),
+         spcallgroup = fct_rev(spcallgroup))
+
+# Graph that
+
+ggplot()+
+  facet_wrap(~fct_relevel(station, rev(Station.Order)), ncol=1, strip.position = "right") +
+  
+  geom_bar(data=daily.summary.species.plot, aes(x=percent_days_present, y= spcall_label, fill=colour), 
+           stat="identity") +
+  scale_fill_identity()+
+  scale_x_continuous(limits = c(0, 100), expand = c(0,0))+
+  
+  geom_text(data= rec.days %>% group_by(station) %>% 
+              summarise(ndays=n()) %>% 
+              ungroup() %>% 
+              filter(station %in% daily.summary.species.plot$station), aes(x=80, y= min(as.numeric(as.factor(daily.summary.species.plot$spcall_label))), label = paste0("n = ",ndays)), size = 3, fontface= "italic")+
+  
+  geom_text(data=daily.summary.species.plot, aes(x = 5, y= spcall_label,label = ifelse(percent_days_present >0  & percent_days_present < 1, "< 1%", "")), vjust=0.55)+
+  
+  labs(x = "Percent of recording days with calls", y="") +
+  
+  # format plot
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major.y= element_blank(), 
+        panel.grid.major.x = element_blank(),
+        panel.background = element_rect(fill= "white", colour = "grey50"),
+        axis.text = element_text(size = 12), 
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(size = 14, face = 'bold'),
+        strip.text.y = element_text(size = 12,face = "bold"),
+        strip.background =element_rect(fill="white", colour = "black"),
+        panel.border = element_rect(fill = NA, colour = "black"),
+        plot.margin = margin(0.1,0.1,0.1,0.1,"cm")) +
+  
+  guides(fill="none")
+
+fig_counter <- fig_counter +1
+
+cat(paste0("\n\n","**Figure ",fig_counter, ".**"," Prevalence of specified baleen whale species calls recorded within the specified area. Percentage of total recording days (n) with confirmed calls of each baleen whale species at each recording station, shown from east (top) to west (bottom)."))
+
+```
+
+
+```{r season_presence_fig, fig.width= 7.5, echo= FALSE, results="asis", eval= params$filterspecies}
+
+season.for.map <- effort.table %>% 
+  select(site, starts_with('perc_')) %>% 
+  rename_all(~gsub('perc_', "", .)) %>% 
+  select(site,contains("_")) %>% 
+  pivot_longer(!site, names_to = c("season", "callcat"), names_sep = "_", values_to = "perc.days") %>% 
+
+  left_join(stations.for.map, by = c("site"="station")) %>% 
+  mutate(label = case_when(season == 'WINTER'~ 'Winter (Dec-Feb)',
+                           season == 'SPRING'~ 'Spring (Mar-May)',
+                           season == 'SUMMER'~ 'Summer (Jun-Aug)',
+                           season == 'FALL'~ 'Fall (Sept-Nov)')) %>% 
+  left_join(unique(species.data %>% select(callcat, spcallgroup, spcallgroup_label)), by="callcat") %>% 
+  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup")
+
+generate_plot_season <- function(data, value){
+ggplot() +
+  
+  # add bathymetry
+  geom_raster(data=bf, aes(x=x, y=y, fill=z)) +
+  scale_fill_distiller(palette="Blues",guide = 'none') +
+  
+  # add land region
+  geom_sf(data = canada, color=NA, fill="grey60") +
+  
+  scale_y_continuous(breaks = c(40,41,42,43,44,45,46,47),labels = function(y) abs(y))+
+  
+  scale_x_continuous(labels = function(x) paste0(-abs(x)))+
+  
+  #facet seasons
+  facet_wrap(~ factor(season, levels=c("WINTER","SPRING","SUMMER","FALL")), ncol=2)+ 
+  
+  geom_text(data = data, aes(x=-69.5, y=47, label = label), nudge_x = 0.0, hjust="left")+
+  
+  # add presence
+  new_scale_fill()+
+  geom_point(data= data, aes(x = lon, y = lat, size = perc.days, fill=perc.days), 
+             colour= 'black',shape=21, stroke = 0.5)+
+
+  scale_size(paste0('% Days with\n',data$spcallgroup_label),
+             range=c(1,10),
+             breaks=c(0,
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)/4),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)/2),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)*0.75),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling))),
+             limits=c(0,plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)),
+             labels= c(0,
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)/4),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)/2),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)*0.75),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling))))+
+  
+  scale_fill_gradientn(paste0('% Days with\n',data$spcallgroup_label), colours=c("white",data$colour,data$colour),
+                       values= c(0,0.00000000001,plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)), 
+                       breaks= c(0,(plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)/4),
+                                 (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)/2),
+                                 (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)*0.75),
+                                 plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)),
+                       limits= c(0,plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)), 
+                       labels= c(0,
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)/4),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)/2),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling)*0.75),
+                      (plyr::round_any(max(data$perc.days, na.rm = TRUE),10, f=ceiling))),
+                       guide="legend")+
+  
+  scale_colour_manual(values='black') +
+  
+  #finish up
+  coord_sf(xlim = c(-70, -55), ylim = c(40, 48), expand = FALSE)+
+  ylab("") + 
+  xlab("") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background =element_blank(), 
+        strip.text = element_blank(),
+        text = element_text(size = 10),
+        axis.text = element_text(size = 10), # format x axis font
+        legend.key = element_rect(fill = NA),
+        legend.position = "bottom",
+        plot.margin = margin(0.1,0.1,0.1,0.1,"cm"),
+        panel.spacing.x = unit(1, "lines"))
+}
+
+
+for (value in call.cats[call.cats %in% season.for.map$callcat]) {
+  subset_data <- filter(season.for.map, callcat == value)
+  plot <- generate_plot_season(subset_data, value)
+  print(plot)
+
+  fig_counter <- fig_counter +1
+
+season.fig.caption <- paste0("Percentage of recording days with confirmed ", unique(species.data$spcallgroup_label[species.data$callcat==value]), " present at each of the ",length(unique(species.data$station)), " recording stations (indicated by circles) for each season (Winter = December-February, Spring = March-May, Summer = June-August and Fall = September-November), all years combined.")
+
+cat(paste0("\n\n","**Figure ", fig_counter, ".** ", season.fig.caption, "\n\n"))
+  
+}
+
+
+```
+\
+
+``` {r monthly_presence_fig, fig.width= 7.5, fig.height = fig_height, echo = FALSE, results="asis", eval = params$filterspecies}
+
+species.month.graph <- species.data %>% 
+  mutate(daysinmonth = days_in_month(detecdate),
+         year = year(detecdate),
+         month = month(detecdate, label=TRUE, abbr=TRUE),
+         month_num = month(detecdate),
+         valcode = 1) %>% 
+  group_by(year,month,month_num,station, species, callcat, spcallgroup,spcallgroup_label,daysinmonth) %>% 
+  summarise(daysofmonth = sum(valcode)) %>% 
+  ungroup() %>% 
+   group_by(station,month,month_num,species, callcat, spcallgroup,spcallgroup_label, daysinmonth) %>% 
+  summarise(mean = mean(daysofmonth),
+            n= n(),
+            sd= sd(daysofmonth),
+            se = sd(daysofmonth)/sqrt(n())) %>% 
+  mutate(percofmonth = (mean / daysinmonth) * 100,
+         error = (se/daysinmonth)*100) %>% 
+  ungroup() %>% 
+  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup")
+
+# Graph that ----
+
+generate_plot_month <- function(data, value){
+ggplot() +
+  
+  facet_wrap(~fct_relevel(station, rev(Station.Order)), ncol=1, strip.position="left")+
+  
+  # plot percentage of days per month collectively
+  
+  geom_bar(data=data, aes(x=month, y=percofmonth, fill =str_wrap(spcallgroup_label)), stat="identity")+
+  scale_fill_manual(values = data$colour, labels = str_wrap(data$spcallgroup_label), name = "")+
+  scale_y_continuous(limits = c(0, 100), breaks = c(0,25,50,75,100))+
+  
+  #add error bars
+  geom_errorbar(data=data, aes(x=month, ymin=percofmonth-error, ymax=percofmonth+error), width=.1, colour= darken_color(data$colour))+
+  
+  # add labels
+  labs(x = "Month", y = "% Days")+
+ 
+  # format plot 
+  theme(panel.grid.minor = element_blank(), 
+        panel.grid.major.y= element_blank(), 
+        panel.grid.major.x = element_blank(), # use element_line(size = 0.5, colour = "grey") to see grid lines
+        panel.background = element_rect(fill= "white", colour = "grey50"), # format gridlines and background
+        axis.text = element_text(size = 12), # format x axis font 
+        axis.title = element_text(size = 14, face = "bold"),
+        strip.text.x = element_text(size = 12,face = "bold"), # format facet heading/ year text 
+        strip.background =element_rect(fill="white", colour = "black"), # format facet strip background and border
+        panel.border = element_rect(fill = NA, colour = "black"),
+        plot.margin = margin(1,0,0,1,"cm"))+ # format plot border
+  guides(fill = "none")
+}
+
+plot_list <-list()
+
+unique_values <- unique(species.month.graph$spcallgroup)
+
+for (value in unique_values) {
+  subset_data_month <- filter(species.month.graph, spcallgroup == value)
+  plot <- generate_plot_month(subset_data_month, value)
+  plot_list[[as.character(value)]] <- plot
+}
+
+# Function to generate the text for captions
+generate_caption <- function(value) {
+  species_label <- unique(subset(species.month.graph, spcallgroup == value)$spcallgroup_label)
+  paste0(
+    "Percentage of recording days with confirmed ", species_label, " present for each month at each station. In cases where multiple years of data were collected the average percentage of days/month with ", species_label," present were calculated (error bars = standard error).")
+}
+
+for (value in unique_values) {
+  print(plot_list[[as.character(value)]])
+  
+month.text <- generate_caption(value)
+
+fig_counter <- fig_counter+1
+
+cat(paste0("\n\n","**Figure ", fig_counter, ".** ", month.text, "\n\n"))
+}
+
+```
+
+```{r weekly_presence_fig, fig.width= 7.5,fig.height = fig_height,echo= FALSE, results = 'asis'}
+presence.week <- species.data %>%
+  select(station, detecdate, spcallgroup) %>% 
+  mutate(week = week(detecdate),
+         month= month(detecdate),
+         year = year(detecdate)) %>% 
+  distinct() %>% 
+  mutate(valcode = 1) %>% 
+  group_by(week,month,year,station,spcallgroup) %>% 
+  summarise(presence=sum(valcode)) %>% 
+  ungroup()
+
+week.summary<- presence.week %>% 
+  mutate(date = as.Date(paste(0000,week,1, sep="-"), '%Y-%W-%u')) %>% 
+  group_by(year,station,spcallgroup,date) %>% 
+  summarise(presence=sum(presence)) %>% 
+  ungroup() %>% 
+  group_by(station, spcallgroup,date) %>% 
+  summarise(mean = mean(presence),
+            n= n(),
+            sd= sd(presence),
+            se = sd(presence)/sqrt(n())) %>% 
+  mutate(spcall_label = fct_recode(spcallgroup, !!!spcallgroup_list)) %>% 
+  mutate(spcallgroup = fct_relevel(spcallgroup,spcallgroup_list)) %>% 
+  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup")
+
+# Figure prep
+
+# figure out no recording times based on combined weekly data
+no.rec.dates.week <- all.days %>% 
+  transmute(station=station,
+            week_date = as_date(paste0("0000-",month(all_days),"-",day(all_days)))) %>% 
+  distinct() %>% 
+  anti_join(rec.days %>% 
+              mutate(week_date = as_date(paste0("0000-",month(rec_days),"-",day(rec_days)))) %>% 
+              select(station,week_date) %>% 
+              distinct(), by = c("station","week_date")) %>%
+  filter(station %in% species.data$station) %>% 
+  group_by(station) %>%
+  summarize(consecutive_intervals = list(detect_consecutive_intervals(week_date))) %>%
+  unnest(cols = c(consecutive_intervals)) %>% 
+  distinct()
+
+# Graph That
+
+generate_plot_week <- function(data, value){
+  ggplot() +
+    
+    facet_wrap(~fct_relevel(station, Station.Order), ncol=1, strip.position="left") +
+    
+    # plot missing data periods using single geom_rect call - do this first so that years are in correct order
+    geom_rect(data=no.rec.dates.week, aes(xmin=start_date,xmax=end_date,ymin=-Inf, ymax=Inf), 
+              fill = "grey50", colour = NA, alpha = 0.2) +
+    
+    # plot species daily presence
+    geom_bar(data=data,aes(x=date, y=mean, fill = str_wrap(spcallgroup)),stat="identity", width= 6.3) +
+    
+    #add error bars
+    geom_errorbar(data=data, aes(x=date, ymin=mean-se, ymax=mean+se),
+                  width=.1, colour=darken_color(data$colour))+
+    
+#    geom_text(data=data, aes(x = as_date("0000-01-15"), y=6, label= station), nudge_x = 0.5)+
+    
+    scale_y_continuous(limits = c(0, 7), breaks = c(0,3,7))+
+    
+    scale_x_date("Month", 
+                 limits= c(ymd("0000-01-01"),ymd("0000-12-31")),
+                 breaks = "1 month", 
+                 date_labels= "%b", # add month labels 
+                 expand = c(0, 0))+
+    
+    labs(title=NULL, y= "Days/Week")+
+    
+    # format plot
+    theme(panel.grid.minor = element_blank(), 
+          panel.grid.major.y= element_blank(), 
+          panel.grid.major.x = element_blank(),
+          panel.background = element_rect(fill= "white", colour = "grey50"),
+          axis.text = element_text(size = 12), 
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(size = 14, face = 'bold'),
+        strip.text.x = element_text(size = 12,face = "bold"), # format facet heading/ year text 
+        strip.background =element_rect(fill="white", colour = "black"), # format facet strip background and border
+          panel.border = element_rect(fill = NA, colour = "black"),
+          plot.margin = margin(0.1,0.1,0.1,0.1,"cm"),
+          legend.position = "bottom",
+          legend.justification = "left",
+          legend.margin=margin(t=-10)) +
+    
+    # format fill colors and legend
+    scale_fill_manual(values = data$colour,
+                      name="",
+                      drop = T)+
+    
+    guides(fill="none")
+}
+
+plot_list <-list()
+
+unique_values <- unique(week.summary$spcallgroup)
+
+for (value in unique_values) {
+  subset_data_week <- filter(week.summary, spcallgroup == value)
+  plot <- generate_plot_week(subset_data_week, value)
+  plot_list[[as.character(value)]] <- plot
+}
+
+# Function to generate the text for captions
+generate_caption <- function(value) {
+  species_label <- unique(subset(week.summary, spcallgroup == value)$spcall_label)
+  paste0(
+    "Seasonal occurrence of ", species_label, ". Number of days per week with ", species_label, 
+    " calls present at each recording station in specified area throughout the year. ",
+    "In cases where multiple years of data were available, the mean number of days per week with ",
+    species_label, " present is shown, with error bars indicating standard error. ",
+    "Grey shaded areas represent periods with no recording effort."
+  )
+}
+
+for (value in unique_values) {
+  print(plot_list[[as.character(value)]])
+  
+week.text <- generate_caption(value)
+
+fig_counter <- fig_counter+1
+
+cat(paste0("\n\n","**Figure ", fig_counter, ".** ", week.text, "\n\n"))
+}
+
+```
+
+
+\pagebreak
+
+## Appendix A
+
+``` {r daily_presence_fig, fig.width= 7.5,fig.height = fig_height ,fig.cap="", echo=FALSE, results = 'asis'}
+
+app.fig_counter <- 0
+
+daily.presence.figure <- species.data %>% 
+  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup")
+
+format_dates <- function(x) {
+  months <- substr(format(x, "%b"),1,1)              # Abbreviated name of the month.
+  years <- lubridate::year(x)                       # Year as a 4-digit number.
+  if_else(is.na(lag(years)) | lag(years) != years,  # Conditions for pasting.
+          true = paste(months, years, sep = "\n"), 
+          false = months)
+}
+
+generate_plot_day <- function(data, value){
+ ggplot() +
+  
+  facet_wrap(~fct_relevel(station, Station.Order), ncol=1, strip.position = "left") +
+  
+  # plot missing data periods using single geom_rect call - do this first so that years are in correct order
+  geom_rect(data=subset(no.rec.dates, station %in% species.data$station), aes(xmin=start_date,xmax=end_date,ymin=-Inf, ymax=Inf), 
+            fill = "grey50", colour = NA, alpha = 0.2) +
+  
+  # plot species daily presence
+  geom_tile(data=data,aes(x=detecdate, y=spcallgroup, fill = spcallgroup), height=0.75) + 
+  
+#  geom_text(data=data, aes(x = as_date(min(no.rec.dates$start_date)+15), y=6, label= station), nudge_x = 0.5)+
+  
+  scale_x_date("Month", 
+               breaks = "2 months", 
+               labels= format_dates, # add month labels 
+               expand = c(0, 0))+
+  
+  # format fill colors and legend
+  scale_fill_manual(values = data$colour,
+                    name="",
+                    drop = T)+
+  # format plot
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),axis.title.y=element_blank(),
+        panel.grid.minor = element_blank(), 
+        panel.grid.major.y= element_blank(), 
+        panel.grid.major.x = element_blank(),
+        panel.background = element_rect(fill= "white", colour = "grey50"),
+        axis.text = element_text(size = 12), 
+        axis.title.x = element_blank(),
+        strip.text.x = element_text(size = 12,face = "bold"), # format facet heading/ year text 
+        strip.background =element_rect(fill="white", colour = "black"), # format facet strip background and border
+        panel.border = element_rect(fill = NA, colour = "black"),
+        plot.margin = margin(0.5,0.5,0.5,0.5,"cm"),
+        legend.position = "bottom",
+        legend.justification = "left",
+        legend.margin=margin(t=-10)) +
+  guides(fill="none")
+}
+
+plot_list <-list()
+
+unique_values <- unique(daily.presence.figure$spcallgroup)
+
+for (value in unique_values) {
+  subset_data_day <- filter(daily.presence.figure, spcallgroup == value)
+  plot <- generate_plot_day(subset_data_day, value)
+  plot_list[[as.character(value)]] <- plot
+}
+
+# Function to generate the text for captions
+generate_caption.day <- function(value) {
+  species_label <- unique(subset(week.summary, spcallgroup == value)$spcall_label)
+  paste0(
+    "Daily occurrence of confirmed ", species_label, " at each recording station. Grey shading represents periods with no recording effort throughout the study period ", min(year(all.days$all_days)), " - ", max(year(all.days$all_days)))
+}
+
+for (value in unique_values) {
+  print(plot_list[[as.character(value)]])
+  
+day.text <- generate_caption.day(value)
+
+app.fig_counter <- app.fig_counter+1
+
+cat(paste0("\n\n","**Figure A-", app.fig_counter, ".** ", day.text, "\n\n"))
+}
+
+```
+
+## References
+
+``` {r references output, results='asis'}
+ref.table <- tibble( Reference= c("Berchok et al. 2006","Watkins et al. 1987","Baumgartner et al. 2008","Au et al. 2006","Parks 2003","Risch et al. 2013"),
+                RefLine = c(
+                  "Berchok, C. L., Bradley, D. L., & Gabrielson, T. B. (2006). St. Lawrence blue whale vocalizations revisited: Characterization of calls detected from 1998 to 2001. The Journal of the Acoustical Society of America, 120(4), 2340.",
+                "Watkins, W. A., Tyack, P., Moore, K. E., & Bird, J. E. (1987). The 20-Hz signals of finback whales (Balaenoptera physalus). Journal of the Acoustical Society of America, 82(6), 1901–1912.",
+                "Baumgartner, M. F., Van Parijs, S. M., Wenzel, F. W., Tremblay, C. J., Carter Esch, H., & Warde, A. M. (2008). Low frequency vocalizations attributed to sei whales (Balaenoptera borealis). The Journal of the Acoustical Society of America, 124(2), 1339–1349.",
+                "Au, W. W. L., Pack, A. A., Lammers, M. O., Herman, L. M., Deakos, M. H., & Andrews, K. (2006). Acoustic properties of humpback whale songs. The Journal of the Acoustical Society of America, 120(2), 1103–1110.",
+                "Parks, S. E. (2003). Acoustic Communication in the North Atlantic Right Whales (Eubalaena glacialis) (pp.270). Massachusetts Institute of Technology.",
+                "Risch, D., Clark, C. W., Dugan, P. J., Popescu, M., Siebert, U., & Van Parijs, S. M. (2013). Minke whale acoustic behavior and multi-year seasonal and diel vocalization patterns in Massachusetts Bay, USA. Marine Ecology Progress Series, 489, 279–295.")) %>%  
+  left_join(calltype.table, by = "Reference") %>% 
+  filter(spcode %in% species.data$species) %>% 
+  add_row(RefLine = "Baumgartner, M. F., & Mussoline, S. E. (2011). A generalized baleen whale call detection and classification system. The Journal of the Acoustical Society of America, 129(5), 2889–2902.")
+
+ref.output <- ref.table %>% 
+  select(RefLine) %>% 
+  distinct() %>% 
+  arrange(RefLine)
+
+cat(paste(ref.output$RefLine, collapse = "\n\n"))
+
+```
+

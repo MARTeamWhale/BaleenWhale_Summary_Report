@@ -1,0 +1,34 @@
+"2","r error 4 (Error in eval(ele) : object 'params' not found
+)"
+"0","daily_summary <- species.data %>%"
+"0","  select(station, detecdate, spcallgroup) %>% "
+"0","  distinct() %>% "
+"0","  group_by(station,spcallgroup) %>% "
+"0","  summarize(days_present = n()) %>% "
+"0","  ungroup() %>% "
+"0","  "
+"0","  left_join( rec.days %>% group_by(station) %>% "
+"0","               summarise(n_rec_days = n()) %>%"
+"0","               ungroup()) %>% "
+"0","  "
+"0","  mutate(percent_days_present = (days_present/n_rec_days)*100) %>% "
+"0","  complete(station = unique(station), spcallgroup = spcallgroup, "
+"0","           fill = list(days_present = 0, percent_days_present=0)) %>% "
+"0","  "
+"0","  mutate(spcall_label = fct_recode(spcallgroup, !!!spcallgroup_list)) %>% "
+"0","  mutate(spcallgroup = fct_relevel(spcallgroup,spcallgroup_list)) %>% "
+"0","  mutate(station=fct_relevel(station, Station.Order))"
+"2","Joining with `by = join_by(station)`"
+"2","Warning: [38;5;232mThere was 1 warning in `mutate()`.[39m
+[38;5;232m[36mℹ[38;5;232m In argument: `spcall_label = fct_recode(...)`.[39m
+Caused by warning:
+[33m![39m Unknown levels in `f`: BW_IF_all, BW_A_all, FW_IS_D, SW_FF_all, RW_UP_U, MW_all"
+"2","Warning: [38;5;232mThere was 1 warning in `mutate()`.[39m
+[38;5;232m[36mℹ[38;5;232m In argument: `spcallgroup = fct_relevel(spcallgroup, spcallgroup_list)`.[39m
+Caused by warning:
+[33m![39m [38;5;232m6 unknown levels in `f`: BW_IF_all, BW_A_all, FW_IS_D, SW_FF_all, RW_UP_U, and MW_all[39m"
+"2","Warning: [38;5;232mThere was 1 warning in `mutate()`.[39m
+[38;5;232m[36mℹ[38;5;232m In argument: `station = fct_relevel(station, Station.Order)`.[39m
+Caused by warning:
+[33m![39m [38;5;232m32 unknown levels in `f`: CCU, GBK, FCD, ROBP, ROBV, ROBE, WSS, EMBD, SBVC1, SBVC2, SAM, SBVC3, ICD, SGL, GDSE, MGE, CGL, GSH, …, CSW,
+and CS2[39m"

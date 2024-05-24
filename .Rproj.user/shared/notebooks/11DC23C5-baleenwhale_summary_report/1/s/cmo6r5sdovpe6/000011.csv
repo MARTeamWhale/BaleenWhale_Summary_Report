@@ -1,0 +1,7 @@
+"0",""
+"0","fig_counter <- fig_counter +1"
+"0",""
+"0","cat(paste0(""\n\n"",""**Figure "",fig_counter, "".**"","" Prevalence of specified baleen whale species calls recorded within the specified area. Percentage of total recording days (n) with confirmed calls of each baleen whale species at each recording station, shown from east (top) to west (bottom).""))"
+"1","
+
+**Figure 2.** Prevalence of specified baleen whale species calls recorded within the specified area. Percentage of total recording days (n) with confirmed calls of each baleen whale species at each recording station, shown from east (top) to west (bottom)."

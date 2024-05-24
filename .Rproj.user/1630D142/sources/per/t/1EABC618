@@ -1,0 +1,26 @@
+{
+    "id": "1EABC618",
+    "path": "~/R-Github/BaleenWhale_Summary_Report/summary_report/baleenwhale_summary_report.Rmd",
+    "project_path": "summary_report/baleenwhale_summary_report.Rmd",
+    "type": "r_markdown",
+    "hash": "1894882168",
+    "contents": "",
+    "dirty": false,
+    "created": 1716462472231.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "414,102",
+        "scrollLine": "273"
+    },
+    "folds": "286|60|412|0|\n419|28|446|0|\n456|30|477|0|\n486|68|506|0|\n508|99|534|0|\n536|66|594|0|\n596|95|629|0|\n631|89|682|0|\n685|104|733|0|\n736|99|837|0|\n840|128|921|0|\n923|96|1052|0|\n1059|108|1142|0|\n1146|41|1166|0|\n",
+    "lastKnownWriteTime": 1716569600,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1716569600528,
+    "read_only": false,
+    "read_only_alternatives": []
+}
