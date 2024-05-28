@@ -15,7 +15,7 @@ pacman::p_load(here, knitr)
 year_start =            #Start year of interest
 year_end =              #End year of interest
 filterspecies = 
-filterstations =
+filterstations = 
 
 # if filterspecies TRUE
 # Blue whale = Bm   Fin whale = Bp  Sei whale = Bb  Humpback whale = Mn  NA Right whale = Eg   Minke whale = Ba

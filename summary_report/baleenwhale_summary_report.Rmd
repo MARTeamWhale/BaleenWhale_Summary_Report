@@ -8,9 +8,9 @@ output:
     fig_caption: true
 format: pipe
 params:
-  year_start:
-  year_end:
-  filterspecies:
+  year_start: 
+  year_end: 
+  filterspecies: 
   filterstations:
   species:
   stations:
@@ -248,7 +248,7 @@ species.data <- data.input %>%
                                        (species== "Bp" & callcat == "IS")~"Fin whale (20Hz calls)",
                                        (species== "Bb" & callcat == "FF")~"Sei whale (full frequency downsweep calls)",
                                        (species== "Mn")                  ~"Humpback whale (all calls)",
-                                       (species== "Eg" & callcat == "U")~"North Atlantic right whale (upcalls)",
+                                       (species== "Eg" & callcat == "UP")~"North Atlantic right whale (upcalls)",
                                        (species== "Ba" & callcat == "P")~"Minke whale (pulse trains)")) %>% 
   mutate(spcallgroup = case_when(species=='Bm' & callcat=="IF" ~ 'BW_IF_all',
                                  species=="Bm" & callcat=='A' ~ 'BW_A_all',
