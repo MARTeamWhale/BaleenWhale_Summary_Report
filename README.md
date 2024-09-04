@@ -3,7 +3,7 @@
 This code will create a preliminary summary report of the baleen whale acoustic analysis results for Team Whale.
 
 Users can choose:
-- years of interest
+- year span of interest
 - species of interest
 - stations of interest
 
