@@ -11,13 +11,13 @@ params:
   year_start: 
   year_end: 
   filterspecies: 
-  filterstations:
-  species:
-  stations:
+  filterstations: 
+  species: 
+  stations: 
 always_allow_html: true
 ---
 
-```{r metadata_setup, include=FALSE}
+``` {r presence_data_input, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 
 # load packages
@@ -35,16 +35,104 @@ options(dplyr.summarise.inform = FALSE)
 fig_counter <- 0
 tab_counter <- 0
 
+## Whale Presence Input  ----
+
+call.cats <- c("IS","A","IF","FF","MO","UP","PT")  
+
+# Set the path to your main folder
+main_folder <- r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_5\BaleenWhale_AcousticAnalysis\Deployments)" # direct to all deployments
+
+# List all subfolders
+subfolders <- list.files(main_folder, full.names = TRUE) #list all subfolders (aka Validation, Results)
+
+if (params$filterstations){
+  subfolders <- subfolders %>% grep(paste(params$stations, collapse = "|"),., value = TRUE)
+}
+  
+# Initialize an empty list to store dataframes
+dfs <- list()
+
+# Iterate over each subfolder, read the CSV files, and combine into a single dataframe
+for (subfolder in subfolders) {
+  # Extract fruit name from the subfolder name
+  deployment <- basename(subfolder) #extract deployment name
+  
+  # Read the CSV file
+  csv_file <- list.files(paste0(subfolders,"\\Results\\"), pattern = paste0(deployment, "_baleenwhale_dailypresence.csv"), #find the presence csv
+                          full.names = TRUE)
+  
+  df <- read_csv(csv_file) #read presence csv
+  
+  df$deployment <- deployment
+  
+  df<- df %>% 
+    mutate(deployment = deployment,
+           station = str_extract(deployment, "^[^_]+")) %>% 
+    relocate(station,deployment)
+  
+  # Store the dataframe in the list
+  dfs[[length(dfs) + 1]] <- df
+  
+}
+
+data.input <- do.call(rbind, dfs)
+
+
+species.data <- data.input %>%
+  filter(presence == "D") %>%   # filters for definite presence
+  filter(year(detecdate)>=params$year_start& year(detecdate)<=params$year_end) %>% 
+  filter(if (params$filterspecies) species %in% params$species else TRUE) %>%   # filters for species of %>% # filters for species of interest
+  select(!calltype) %>%
+  mutate(callcat = case_when(callcat == "NS"~"MO",
+                              callcat == "SG"~"MO", .default =callcat)) %>% 
+  filter(callcat %in% call.cats) %>%  #filters for wanted call category
+  distinct() %>%
+  mutate(spcallgroup_label = case_when((species== "Bm" & callcat == "IF")~"Blue whale (tonal calls)",
+                                       (species== "Bm" & callcat == "A")~"Blue whale (audible calls)",
+                                       (species== "Bp" & callcat == "IS")~"Fin whale (20Hz calls)",
+                                       (species== "Bb" & callcat == "FF")~"Sei whale (full frequency downsweep calls)",
+                                       (species== "Mn")                  ~"Humpback whale (all calls)",
+                                       (species== "Eg" & callcat == "UP")~"North Atlantic right whale (upcalls)",
+                                       (species== "Ba" & callcat == "P")~"Minke whale (pulse trains)")) %>% 
+  mutate(spcallgroup = case_when(species=='Bm' & callcat=="IF" ~ 'BW_IF_all',
+                                 species=="Bm" & callcat=='A' ~ 'BW_A_all',
+                                 species=='Bp' & callcat=='IS' ~ 'FW_IS_D',
+                                 species=='Bb' & callcat=='FF' ~ 'SW_FF_all',
+                                 species=='Mn' ~ 'HB_all',
+                                 species=='Eg' & callcat=='UP'~ 'RW_UP_U',
+                                 species=="Ba"~ 'MW_all'))
+
+
+## All the labelling bits and pieces ----
+species.call.label <- unique(species.data$spcallgroup_label[species.data$species==params$species])
+
+spcallgroup_labels = c("Blue whale (tonal calls)","Blue whale (audible calls)","Fin whale (20Hz calls)",
+                      "Sei whale (full frequency downsweep calls)","Humpback whale (all calls)",
+                      "North Atlantic right whale (upcalls)","Minke whale (pulse trains)")
+
+spcallgroup_list <- c('BW_IF_all','BW_A_all',"FW_IS_D","SW_FF_all","HB_all", "RW_UP_U", "MW_all")
+
+sp_label <-c("Blue whale (tonal calls)","Blue whale (audible calls)","Fin whale","Sei whale","Humpback whale", "North Atlantic right whale", "Minke whale")
+
+names(spcallgroup_list) <-sp_label
+
+cols <-c( "#A6CEE3","#1F78B4","#7570B3", "#F0E442", "#E7298A", "#D55E00", "#66A61E")
+names(cols) <- spcallgroup_list
+
+fig_height <- as.numeric(length(unique(species.data$station)))
+
+
+```
+
+```{r metadata_setup, include=FALSE}
 ## Metadata ----
 
 metadata.input<-read.csv(r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_2\PAM_metadata\deployment_summary.csv)", header= TRUE)
 
-years <- c(as.numeric(params$year_start):as.numeric(params$year_end))
-  
   metadata<-metadata.input%>%
     rename_with(tolower) %>%
     
-    filter(year %in% years[-length(years)]) %>% #only keep years of interest
+     filter(year>=params$year_start& year<=params$year_end) %>% #only keep years of interest
     mutate(rec_start = as_date(as.character(in.water_start))+1, #format date
            rec_end = as_date(as.character(in.water_end))-1) %>% #format date
     
@@ -57,15 +145,15 @@ years <- c(as.numeric(params$year_start):as.numeric(params$year_end))
     # format deployments
     mutate(deployment= str_replace_all(deployment, "-", "_"),
            deployment = gsub('^(\\w{3,}_\\d{4}_\\d{2}).*','\\1', deployment)) %>% 
-    
+    filter(deployment %in% species.data$deployment) %>% 
+  
     # extract station code
     mutate(station= str_extract(deployment, "^[^_]+")) %>%
     filter(if(params$filterstation) station %in% params$stations else TRUE) %>% 
     
     mutate(station_name= paste0(station_name, " (",station,")")) %>% 
-    
-   select(c(station, deployment, station_name, latitude, longitude, rec_start, rec_end, depth, recorder_type)) %>% #remove unneeded columns
-    
+ #remove unneeded columns
+   select(c(station, deployment, station_name, latitude, longitude, rec_start, rec_end, depth, recorder_type)) %>% 
     drop_na()
 
 ## Order of Stations ----
@@ -155,10 +243,11 @@ detect_consecutive_intervals <- function(dates) {
 
 # find all dates within effort years  
 all.days <- metadata %>% 
-  select(station) %>% 
+  select(station, rec_start,rec_end) %>% 
   rowwise() %>% 
-  mutate(all_days = list(seq.Date(as_date(paste(years[1], "01", "01", sep = "-")),as_date(paste(years[length(years)], "12", "31", sep = "-")), by = "day"))) %>% 
+  mutate(all_days = list(seq.Date(as_date(paste(min(year(rec_start)), "01", "01", sep = "-")), as_date(paste(max(year(rec_end)), "12", "31", sep = "-")), by = "day"))) %>% 
   unnest(cols=c(all_days)) %>% 
+  select(!c(rec_start,rec_end)) %>% 
   ungroup()
 
 # find the dates with no recording effort
@@ -190,97 +279,11 @@ darken_color <- function(color, factor = 0.8) {
 }
 ```
 
-``` {r presence_data_input}
-## Whale Presence Input  ----
-
-call.cats <- c("IS","A","IF","FF","MO","UP","PT")  
-
-# Set the path to your main folder
-main_folder <- r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_5\BaleenWhale_AcousticAnalysis\Deployments)" # direct to all deployments
-
-# List all subfolders
-subfolders <- list.files(main_folder, full.names = TRUE) #list all subfolders (aka Validation, Results)
-
-if (params$filterstations){
-  subfolders <- subfolders %>% grep(paste(params$stations, collapse = "|"),., value = TRUE)
-}
-  
-# Initialize an empty list to store dataframes
-dfs <- list()
-
-# Iterate over each subfolder, read the CSV files, and combine into a single dataframe
-for (subfolder in subfolders) {
-  # Extract fruit name from the subfolder name
-  deployment <- basename(subfolder) #extract deployment name
-  
-  # Read the CSV file
-  csv_file <- list.files(paste0(subfolders,"\\Results\\"), pattern = paste0(deployment, "_baleenwhale_dailypresence.csv"), #find the presence csv
-                          full.names = TRUE)
-  
-  df <- read_csv(csv_file) #read presence csv
-  
-  df$deployment <- deployment
-  
-  df<- df %>% 
-    mutate(deployment = deployment,
-           station = str_extract(deployment, "^[^_]+")) %>% 
-    relocate(station,deployment)
-  
-  # Store the dataframe in the list
-  dfs[[length(dfs) + 1]] <- df
-  
-}
-
-data.input <- do.call(rbind, dfs)
-
-
-species.data <- data.input %>%
-  filter(presence == "D") %>%   # filters for definite presence
-  filter(year(detecdate)>=min(years)& year(detecdate)<=max(years)) %>% 
-  filter(if (params$filterspecies) species %in% params$species else TRUE) %>%   # filters for species of %>% # filters for species of interest
-  select(!calltype) %>%
-  mutate(callcat = case_when(callcat == "NS"~"MO",
-                              callcat == "SG"~"MO", .default =callcat)) %>% 
-  filter(callcat %in% call.cats) %>%  #filters for wanted call category
-  distinct() %>%
-  mutate(spcallgroup_label = case_when((species== "Bm" & callcat == "IF")~"Blue whale (tonal calls)",
-                                       (species== "Bm" & callcat == "A")~"Blue whale (audible calls)",
-                                       (species== "Bp" & callcat == "IS")~"Fin whale (20Hz calls)",
-                                       (species== "Bb" & callcat == "FF")~"Sei whale (full frequency downsweep calls)",
-                                       (species== "Mn")                  ~"Humpback whale (all calls)",
-                                       (species== "Eg" & callcat == "UP")~"North Atlantic right whale (upcalls)",
-                                       (species== "Ba" & callcat == "P")~"Minke whale (pulse trains)")) %>% 
-  mutate(spcallgroup = case_when(species=='Bm' & callcat=="IF" ~ 'BW_IF_all',
-                                 species=="Bm" & callcat=='A' ~ 'BW_A_all',
-                                 species=='Bp' & callcat=='IS' ~ 'FW_IS_D',
-                                 species=='Bb' & callcat=='FF' ~ 'SW_FF_all',
-                                 species=='Mn' ~ 'HB_all',
-                                 species=='Eg' & callcat=='UP'~ 'RW_UP_U',
-                                 species=="Ba"~ 'MW_all'))
-## All the labelling bits and pieces ----
-species.call.label <- unique(species.data$spcallgroup_label[species.data$species==params$species])
-
-spcallgroup_labels = c("Blue whale (tonal calls)","Blue whale (audible calls)","Fin whale (20Hz calls)",
-                      "Sei whale (full frequency downsweep calls)","Humpback whale (all calls)",
-                      "North Atlantic right whale (upcalls)","Minke whale (pulse trains)")
-
-spcallgroup_list <- c('BW_IF_all','BW_A_all',"FW_IS_D","SW_FF_all","HB_all", "RW_UP_U", "MW_all")
-
-sp_label <-c("Blue whale (tonal calls)","Blue whale (audible calls)","Fin whale","Sei whale","Humpback whale", "North Atlantic right whale", "Minke whale")
-
-names(spcallgroup_list) <-sp_label
-
-cols <-c( "#A6CEE3","#1F78B4","#7570B3", "#F0E442", "#E7298A", "#D55E00", "#66A61E")
-names(cols) <- spcallgroup_list
-
-fig_height <- as.numeric(length(unique(species.data$station)))
-
-
-```
-
 This report summarizes the acoustic analysis results for `r species.call.label`. This includes recording stations `r unique(species.data$station)` from `r min(year(all.days$all_days))` to `r max(year(all.days$all_days))`.
 
 ## Data Collection and Analysis
+
+### Data Collection
 
 Deployments from `r min(year(all.days$all_days))` to `r max(year(all.days$all_days))` were analysed, comprising of  `r length(unique(species.data$deployment))` deployments across `r length(unique(species.data$station))` recording stations (Figure 1, Table 1).
 
@@ -426,7 +429,7 @@ data.collection.table <- metadata %>%
   mutate(rec_days = as.numeric(difftime(rec_end,rec_start, units='days')+1)) %>%
   mutate(rec_dates = paste0(rec_start," - ", rec_end)) %>% 
   select(station,lat,lon,depth,rec_dates,rec_days,recorder_type) %>% 
-  arrange(factor(station, levels = Station.Order), rec_dates)
+  arrange(factor(station, levels = rev(Station.Order)), rec_dates)
   
 #specify column names
 data.collection.names <- c("Station","Latitude (decimal degrees)", "Longitude (decimal degrees)", "Depth (m)", 'Recording Dates', "# Days", "Recorder Type")
@@ -447,6 +450,8 @@ tab_counter <- tab_counter +1
 ```
 
 \pagebreak
+
+### Data Analysis
 
 Our analysis targeted `r length(unique(species.data$species))` baleen whale species, and their detectable call types.
 \
@@ -507,7 +512,7 @@ daily_summary <- species.data %>%
 ```
 
 ``` {r unfiltered conditional results, echo= FALSE, results = 'asis', eval = !params$filterspecies}
-for (i in unique(daily_summary$spcallgroup)) {
+for (i in levels(daily_summary$spcallgroup)) {
   # Filter the data for the current spcallgroup
   group_data <- daily_summary[daily_summary$spcallgroup == i, ]
   
@@ -581,7 +586,7 @@ effort.table <- data.frame(site = unique(effort.presence$station)) %>%
               summarize(n.rec.days = dplyr::n()) %>% 
               pivot_wider(names_from = "season",values_from = "n.rec.days"),by = join_by(site==station)) %>% 
   #clean up
-  arrange(factor(site, levels = Station.Order))
+  arrange(factor(site, levels = rev(Station.Order)))
 
 results.table <- effort.table %>%
    pivot_longer(
@@ -689,16 +694,14 @@ cat(paste0("\n\n","**Table ", tab_counter, ".** ", effort.table.caption, "\n\n")
 
 daily.summary.species.plot <- daily_summary %>%
   mutate(spcall_label = str_replace(spcall_label,"NA Right whale", "North Atlantic right whale")) %>%
-  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup") %>% 
-  mutate(spcallgroup = fct_relevel(spcallgroup,spcallgroup_list),
-         spcallgroup = fct_rev(spcallgroup))
+  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup")
 
 # Graph that
 
 ggplot()+
   facet_wrap(~fct_relevel(station, rev(Station.Order)), ncol=1, strip.position = "right") +
   
-  geom_bar(data=daily.summary.species.plot, aes(x=percent_days_present, y= spcall_label, fill=colour), 
+  geom_bar(data=daily.summary.species.plot, aes(x=percent_days_present, y= fct_relevel(spcall_label,rev(sp_label)) , fill=colour), 
            stat="identity") +
   scale_fill_identity()+
   scale_x_continuous(limits = c(0, 100), expand = c(0,0))+
@@ -857,7 +860,8 @@ species.month.graph <- species.data %>%
   mutate(percofmonth = (mean / daysinmonth) * 100,
          error = (se/daysinmonth)*100) %>% 
   ungroup() %>% 
-  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup")
+  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup") %>% 
+  mutate(spcallgroup = fct_relevel(spcallgroup,spcallgroup_list))
 
 # Graph that ----
 
@@ -894,7 +898,7 @@ ggplot() +
 
 plot_list <-list()
 
-unique_values <- unique(species.month.graph$spcallgroup)
+unique_values <- levels(species.month.graph$spcallgroup)
 
 for (value in unique_values) {
   subset_data_month <- filter(species.month.graph, spcallgroup == value)
@@ -942,10 +946,14 @@ week.summary<- presence.week %>%
   summarise(mean = mean(presence),
             n= n(),
             sd= sd(presence),
-            se = sd(presence)/sqrt(n())) %>% 
-  mutate(spcall_label = fct_recode(spcallgroup, !!!spcallgroup_list)) %>% 
-  mutate(spcallgroup = fct_relevel(spcallgroup,spcallgroup_list)) %>% 
-  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup")
+            se = sd(presence)/sqrt(n()), .groups = 'drop') %>% 
+  
+    left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup") %>% 
+  
+  mutate(spcallgroup = fct_expand(spcallgroup),
+        spcall_label = fct_recode(spcallgroup, !!!spcallgroup_list)) %>%
+  
+     mutate(spcallgroup = fct_relevel(spcallgroup,spcallgroup_list))
 
 # Figure prep
 
@@ -969,7 +977,7 @@ no.rec.dates.week <- all.days %>%
 generate_plot_week <- function(data, value){
   ggplot() +
     
-    facet_wrap(~fct_relevel(station, Station.Order), ncol=1, strip.position="left") +
+    facet_wrap(~fct_relevel(station, rev(Station.Order)), ncol=1, strip.position="left") +
     
     # plot missing data periods using single geom_rect call - do this first so that years are in correct order
     geom_rect(data=no.rec.dates.week, aes(xmin=start_date,xmax=end_date,ymin=-Inf, ymax=Inf), 
@@ -1020,7 +1028,7 @@ generate_plot_week <- function(data, value){
 
 plot_list <-list()
 
-unique_values <- unique(week.summary$spcallgroup)
+unique_values <- levels(week.summary$spcallgroup)
 
 for (value in unique_values) {
   subset_data_week <- filter(week.summary, spcallgroup == value)
@@ -1062,7 +1070,8 @@ cat(paste0("\n\n","**Figure ", fig_counter, ".** ", week.text, "\n\n"))
 app.fig_counter <- 0
 
 daily.presence.figure <- species.data %>% 
-  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup")
+  left_join(data.frame(colour=cols, spcallgroup= names(cols)), by="spcallgroup") %>% 
+  mutate(spcallgroup = fct_relevel(spcallgroup, spcallgroup_list))
 
 format_dates <- function(x) {
   months <- substr(format(x, "%b"),1,1)              # Abbreviated name of the month.
@@ -1075,7 +1084,7 @@ format_dates <- function(x) {
 generate_plot_day <- function(data, value){
  ggplot() +
   
-  facet_wrap(~fct_relevel(station, Station.Order), ncol=1, strip.position = "left") +
+  facet_wrap(~fct_relevel(station, rev(Station.Order)), ncol=1, strip.position = "left") +
   
   # plot missing data periods using single geom_rect call - do this first so that years are in correct order
   geom_rect(data=subset(no.rec.dates, station %in% species.data$station), aes(xmin=start_date,xmax=end_date,ymin=-Inf, ymax=Inf), 
@@ -1115,7 +1124,7 @@ generate_plot_day <- function(data, value){
 
 plot_list <-list()
 
-unique_values <- unique(daily.presence.figure$spcallgroup)
+unique_values <- levels(daily.presence.figure$spcallgroup)
 
 for (value in unique_values) {
   subset_data_day <- filter(daily.presence.figure, spcallgroup == value)
