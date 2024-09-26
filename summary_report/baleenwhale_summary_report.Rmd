@@ -8,12 +8,12 @@ output:
     fig_caption: true
 format: pipe
 params:
-  year_start: 
-  year_end: 
-  filterspecies: 
-  filterstations: 
+  year_start:
+  year_end:
+  filterspecies:
+  filterstations:
   species: 
-  stations: 
+  stations:
 always_allow_html: true
 ---
 
@@ -258,7 +258,31 @@ no.rec.dates <- all.days %>%
   group_by(station) %>%
   summarize(consecutive_intervals = list(detect_consecutive_intervals(all_days))) %>%
   unnest(cols = c(consecutive_intervals)) %>% 
-  distinct()
+  distinct() %>% 
+  ungroup()
+
+summarized_data <- no.rec.dates %>%
+  group_by(station) %>%
+  summarize(first_start = min(start_date),
+            last_end = max(end_date),
+            .groups = 'drop')
+
+new_rows <- summarized_data %>%
+  # Create rows for the earliest start date and the latest end date
+  bind_rows(tibble(station = summarized_data$station,
+                   start_date = min(no.rec.dates$start_date),
+                   end_date = summarized_data$first_start),
+            tibble(station = summarized_data$station,
+                   start_date = summarized_data$last_end,
+                   end_date = max(no.rec.dates$end_date)))
+  
+no.rec.dates <- bind_rows(no.rec.dates, new_rows) %>%
+  # Select relevant columns and arrange for clarity
+  select(station, start_date, end_date) %>%
+  arrange(station, start_date) %>% 
+  drop_na
+  
+
 
 # figure out a darker colour for error bars
 darken_color <- function(color, factor = 0.8) {
@@ -307,7 +331,7 @@ bf = readRDS(r"(R:\Science\CetaceanOPPNoise\CetaceanOPPNoise_2\bathymetry\baleen
 ## Map that ----
 if(params$filterstations){
   
-stations.for.map <- stations %>% filter(station %in% params$stations)
+stations.for.map <- stations %>% filter(station %in% metadata$station)
 
 station.map <-ggplot() +
   
