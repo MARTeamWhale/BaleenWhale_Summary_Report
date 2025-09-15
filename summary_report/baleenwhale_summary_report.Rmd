@@ -116,7 +116,7 @@ sp_label <-c("Blue whale (tonal calls)","Blue whale (audible calls)","Fin whale"
 
 names(spcallgroup_list) <-sp_label
 
-cols <-c( "#A6CEE3","#1F78B4","#7570B3", "#F0E442", "#E7298A", "#D55E00", "#66A61E")
+cols <-c( "#1F78B4","#A6CEE3","#7570B3", "#F0E442", "#E7298A", "#D55E00", "#66A61E")
 names(cols) <- spcallgroup_list
 
 fig_height <- as.numeric(length(unique(species.data$station)))
