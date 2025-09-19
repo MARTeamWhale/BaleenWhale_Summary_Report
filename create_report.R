@@ -11,7 +11,7 @@ pacman::p_load(here, knitr)
 
 # required:
 
-
+interim_data=           #using partially completed analysis
 year_start =            #Start year of interest
 year_end =              #End year of interest
 filterspecies = 
@@ -32,10 +32,11 @@ stations = c("")    # use format c("","")
 
 # define function
 render_report = function(
-    year_start, year_end, filterspecies,filterstations,species,stations) {
+    interim_data, year_start, year_end, filterspecies,filterstations,species,stations) {
   
   rmarkdown::render(here("summary_report","baleenWhale_summary_report.Rmd"), 
                     params = list(
+                      interim_data = interim_data,
                       year_start = year_start,
                       year_end = year_end,
                       filterspecies = filterspecies,
@@ -47,4 +48,4 @@ render_report = function(
 }
 
 # render report based on parameters set above
-render_report(year_start,year_end, filterspecies,filterstations,species,stations)
+render_report(interim_data, year_start,year_end, filterspecies,filterstations,species,stations)

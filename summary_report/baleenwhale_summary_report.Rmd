@@ -8,10 +8,11 @@ output:
     fig_caption: true
 format: pipe
 params:
-  year_start:
-  year_end:
-  filterspecies:
-  filterstations:
+  interim_data: 
+  year_start: 
+  year_end: 
+  filterspecies: 
+  filterstations: 
   species: 
   stations:
 always_allow_html: true
@@ -58,8 +59,18 @@ for (subfolder in subfolders) {
   deployment <- basename(subfolder) #extract deployment name
   
   # Read the CSV file
-  csv_file <- list.files(paste0(subfolders,"\\Results\\"), pattern = paste0(deployment, "_baleenwhale_dailypresence.csv"), #find the presence csv
+ 
+  if (params$interim_data){
+  
+  csv_file <- list.files(paste0(subfolder,"\\Results\\"), pattern = "_dailypresence.csv", #find the presence csv
                           full.names = TRUE)
+  } else {
+  csv_file <- list.files(paste0(subfolder,"\\Results\\"), pattern = "_dailypresence.csv", #find the presence csv
+                          full.names = TRUE) %>% 
+    { .[!grepl("interim", basename(.))] }
+  }
+  
+  if (length(csv_file) == 0) next
   
   df <- read_csv(csv_file) #read presence csv
   
@@ -68,6 +79,7 @@ for (subfolder in subfolders) {
   df<- df %>% 
     mutate(deployment = deployment,
            station = str_extract(deployment, "^[^_]+")) %>% 
+    mutate(detecdate = as_date(detecdate, format = "%m/%d/%Y")) %>% 
     relocate(station,deployment)
   
   # Store the dataframe in the list
@@ -75,7 +87,7 @@ for (subfolder in subfolders) {
   
 }
 
-data.input <- do.call(rbind, dfs)
+data.input <- bind_rows(dfs)
 
 
 species.data <- data.input %>%
