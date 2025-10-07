@@ -1,5 +1,6 @@
 ---
 title: "Baleen Whale Analysis Summary"
+subtitle: "For Internal Use Only"
 author: "G. Macklin"
 date: 'Date created: `r Sys.Date()`'
 output:
